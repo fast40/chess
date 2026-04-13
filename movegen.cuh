@@ -511,3 +511,32 @@ __host__ __device__ void generate_rook_moves(const BoardState& board, MoveList& 
         }
     }
 }
+
+// === Queen Moves ===
+
+/**
+ * Generate all pseudo-legal queen moves for the side to move.
+ *
+ * The queen combines the movement of a bishop and a rook: it slides along all 8 ray
+ * directions (4 orthogonal + 4 diagonal), which is directions 0-7 in our encoding.
+ */
+__host__ __device__ void generate_queen_moves(const BoardState& board, MoveList& list) {
+    Color us = board.side_to_move;
+    uint64_t our_queens = board.pieces[us][QUEEN];
+    uint64_t enemy = board.occupied[(us == WHITE) ? BLACK : WHITE];
+    uint64_t friendly = board.occupied[us];
+
+    while (our_queens) {
+        int from = pop_lsb(our_queens);
+        // NOTE: [pedagogical] The queen's attack set is exactly the union of bishop attacks
+        // (directions 4-7) and rook attacks (directions 0-3). Using sliding_attacks with
+        // range 0-8 computes all 8 directions in one call.
+        uint64_t targets = sliding_attacks(from, board.all_occupied, 0, 8) & ~friendly;
+
+        while (targets) {
+            int to = pop_lsb(targets);
+            MoveFlag flag = (enemy & (1ULL << to)) ? CAPTURE : QUIET;
+            add_move(list, from, to, flag);
+        }
+    }
+}
