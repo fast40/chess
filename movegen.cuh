@@ -485,3 +485,29 @@ __host__ __device__ void generate_bishop_moves(const BoardState& board, MoveList
         }
     }
 }
+
+// === Rook Moves ===
+
+/**
+ * Generate all pseudo-legal rook moves for the side to move.
+ *
+ * Rooks slide along the 4 orthogonal directions (N, S, W, E), which are ray
+ * directions 0-3 in our encoding.
+ */
+__host__ __device__ void generate_rook_moves(const BoardState& board, MoveList& list) {
+    Color us = board.side_to_move;
+    uint64_t our_rooks = board.pieces[us][ROOK];
+    uint64_t enemy = board.occupied[(us == WHITE) ? BLACK : WHITE];
+    uint64_t friendly = board.occupied[us];
+
+    while (our_rooks) {
+        int from = pop_lsb(our_rooks);
+        uint64_t targets = sliding_attacks(from, board.all_occupied, 0, 4) & ~friendly;
+
+        while (targets) {
+            int to = pop_lsb(targets);
+            MoveFlag flag = (enemy & (1ULL << to)) ? CAPTURE : QUIET;
+            add_move(list, from, to, flag);
+        }
+    }
+}
