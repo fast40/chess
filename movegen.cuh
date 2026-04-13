@@ -540,3 +540,54 @@ __host__ __device__ void generate_queen_moves(const BoardState& board, MoveList&
         }
     }
 }
+
+// === Castling ===
+
+// NOTE: [pedagogical] Castling has several prerequisites:
+//   1. The king has not moved (tracked by castling rights bits).
+//   2. The relevant rook has not moved (also tracked by castling rights).
+//   3. All squares between the king and rook must be empty.
+//   4. The king must not be in check, and must not pass through or land on a
+//      square attacked by the opponent.
+//
+// This function checks conditions 1-3. Condition 4 (attack checks) is deferred to
+// the legality filter, which will reject castling moves that pass through check. This
+// keeps the move generator simple and consistent with the pseudo-legal approach.
+
+// Bitmasks for the squares that must be empty between king and rook for each castle type.
+constexpr uint64_t WHITE_KINGSIDE_PATH  = (1ULL << F1) | (1ULL << G1);
+constexpr uint64_t WHITE_QUEENSIDE_PATH = (1ULL << D1) | (1ULL << C1) | (1ULL << B1);
+constexpr uint64_t BLACK_KINGSIDE_PATH  = (1ULL << F8) | (1ULL << G8);
+constexpr uint64_t BLACK_QUEENSIDE_PATH = (1ULL << D8) | (1ULL << C8) | (1ULL << B8);
+
+/**
+ * Generate pseudo-legal castling moves for the side to move.
+ *
+ * Only checks that the castling rights are set and the path is clear. Does NOT
+ * check whether the king is in check or passes through an attacked square — that
+ * is handled by the legality filter.
+ */
+__host__ __device__ void generate_castling_moves(const BoardState& board, MoveList& list) {
+    Color us = board.side_to_move;
+    uint64_t occ = board.all_occupied;
+
+    if (us == WHITE) {
+        if ((board.castling_rights & WHITE_KINGSIDE) &&
+            !(occ & WHITE_KINGSIDE_PATH)) {
+            add_move(list, E1, G1, KINGSIDE_CASTLE);
+        }
+        if ((board.castling_rights & WHITE_QUEENSIDE) &&
+            !(occ & WHITE_QUEENSIDE_PATH)) {
+            add_move(list, E1, C1, QUEENSIDE_CASTLE);
+        }
+    } else {
+        if ((board.castling_rights & BLACK_KINGSIDE) &&
+            !(occ & BLACK_KINGSIDE_PATH)) {
+            add_move(list, E8, G8, KINGSIDE_CASTLE);
+        }
+        if ((board.castling_rights & BLACK_QUEENSIDE) &&
+            !(occ & BLACK_QUEENSIDE_PATH)) {
+            add_move(list, E8, C8, QUEENSIDE_CASTLE);
+        }
+    }
+}
