@@ -1,2 +1,3 @@
 test_board
 test_pawn_movegen
+test_knight_movegen
