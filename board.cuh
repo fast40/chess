@@ -119,6 +119,49 @@ __host__ __device__ inline bool test_bit(uint64_t bitboard, int square) {
     return (bitboard >> square) & 1ULL;
 }
 
+// === File and Rank Masks ===
+// NOTE: [pedagogical] File masks are vertical columns (a-file through h-file). Each file
+// mask has one bit set per rank, so 8 bits set total. These are essential for preventing
+// bitboard shifts from wrapping pieces around the board edges. For example, a pawn on the
+// a-file cannot capture to the left — masking out FILE_A before a leftward shift prevents
+// the bit from wrapping to the h-file of the rank below.
+constexpr uint64_t FILE_A = 0x0101010101010101ULL;
+constexpr uint64_t FILE_H = 0x8080808080808080ULL;
+
+// NOTE: [pedagogical] Rank masks are horizontal rows. RANK_1 is white's back rank,
+// RANK_8 is black's back rank. RANK_2 and RANK_7 are used to identify pawns eligible
+// for double pushes. RANK_4 and RANK_5 are the en passant target ranks.
+constexpr uint64_t RANK_1 = 0x00000000000000FFULL;
+constexpr uint64_t RANK_2 = 0x000000000000FF00ULL;
+constexpr uint64_t RANK_3 = 0x0000000000FF0000ULL;
+constexpr uint64_t RANK_4 = 0x00000000FF000000ULL;
+constexpr uint64_t RANK_5 = 0x000000FF00000000ULL;
+constexpr uint64_t RANK_6 = 0x0000FF0000000000ULL;
+constexpr uint64_t RANK_7 = 0x00FF000000000000ULL;
+constexpr uint64_t RANK_8 = 0xFF00000000000000ULL;
+
+// === Bit Scanning ===
+// NOTE: [pedagogical] pop_lsb extracts and clears the least significant set bit from a
+// bitboard, returning its index (0-63). This is the standard way to iterate over all set
+// bits in a bitboard: call pop_lsb in a loop until the bitboard is zero. The expression
+// (bitboard & (bitboard - 1)) clears the lowest set bit: subtracting 1 flips all bits
+// up to and including the lowest set bit, then AND with the original clears just that bit.
+__host__ __device__ inline int pop_lsb(uint64_t& bitboard) {
+#ifdef __CUDA_ARCH__
+    // NOTE: [pedagogical] __ffsll is a CUDA intrinsic that finds the position of the
+    // first (least significant) set bit, returning a 1-indexed result. We subtract 1
+    // to convert to our 0-indexed square mapping.
+    int square = __ffsll(bitboard) - 1;
+#else
+    // NOTE: [pedagogical] __builtin_ctzll counts trailing zeros — equivalent to finding
+    // the index of the least significant set bit. This is a GCC/Clang intrinsic that
+    // maps to a single hardware instruction (BSF or TZCNT on x86).
+    int square = __builtin_ctzll(bitboard);
+#endif
+    bitboard &= bitboard - 1;
+    return square;
+}
+
 // === Castling Right Constants ===
 constexpr uint8_t WHITE_KINGSIDE  = 1 << 0;
 constexpr uint8_t WHITE_QUEENSIDE = 1 << 1;
