@@ -404,10 +404,7 @@ __host__ __device__ void generate_king_moves(const BoardState& board, MoveList& 
 // NOTE: [pedagogical] Each direction is encoded as a (file_delta, rank_delta) pair. To
 // walk along a ray, we repeatedly add file_delta to the file and rank_delta to the rank.
 // The direction indices 0-3 are for rook (orthogonal) and 4-7 are for bishop (diagonal).
-constexpr int RAY_FILE_DELTA[8] = { 0, 0, -1, +1,  -1, +1, -1, +1};
-constexpr int RAY_RANK_DELTA[8] = {+1, -1,  0,  0,  +1, +1, -1, -1};
-
-// Direction names:
+// Direction encoding:
 //   0: North      1: South      2: West       3: East
 //   4: NorthWest  5: NorthEast  6: SouthWest  7: SouthEast
 
@@ -420,11 +417,19 @@ constexpr int RAY_RANK_DELTA[8] = {+1, -1,  0,  0,  +1, +1, -1, -1};
  */
 __host__ __device__ inline uint64_t ray_attacks(int square, int direction,
                                                 uint64_t all_occupied) {
+    // NOTE: [pedagogical] These delta arrays are defined inside the function rather than
+    // as global constants because CUDA __constant__ memory is only accessible from device
+    // code, while constexpr arrays are only accessible from host code. Since this function
+    // is __host__ __device__ (runs on both), local arrays are the cleanest solution — the
+    // compiler will optimize them into registers or constant loads on both targets.
+    const int file_delta[8] = { 0, 0, -1, +1,  -1, +1, -1, +1};
+    const int rank_delta[8] = {+1, -1,  0,  0,  +1, +1, -1, -1};
+
     uint64_t attacks = 0;
     int file = square % 8;
     int rank = square / 8;
-    int df = RAY_FILE_DELTA[direction];
-    int dr = RAY_RANK_DELTA[direction];
+    int df = file_delta[direction];
+    int dr = rank_delta[direction];
 
     while (true) {
         file += df;
