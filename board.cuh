@@ -126,6 +126,8 @@ __host__ __device__ inline bool test_bit(uint64_t bitboard, int square) {
 // a-file cannot capture to the left — masking out FILE_A before a leftward shift prevents
 // the bit from wrapping to the h-file of the rank below.
 constexpr uint64_t FILE_A = 0x0101010101010101ULL;
+constexpr uint64_t FILE_B = 0x0202020202020202ULL;
+constexpr uint64_t FILE_G = 0x4040404040404040ULL;
 constexpr uint64_t FILE_H = 0x8080808080808080ULL;
 
 // NOTE: [pedagogical] Rank masks are horizontal rows. RANK_1 is white's back rank,

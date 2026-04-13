@@ -1,6 +1,6 @@
 /**
  * @file movegen.cuh
- * @brief Move generation for chess, starting with pawn moves.
+ * @brief Move generation for chess.
  *
  * Move generation is the core computational task of the chess simulator. For each
  * position, we enumerate every legal move, then pick one uniformly at random. This
@@ -255,6 +255,74 @@ __host__ __device__ void generate_pawn_moves(const BoardState& board, MoveList& 
             if (test_bit(our_pawns, from)) {
                 add_move(list, from, ep_target, EN_PASSANT);
             }
+        }
+    }
+}
+
+// === Knight Moves ===
+
+/**
+ * Compute the bitboard of all squares a knight can reach from the given square.
+ *
+ * A knight moves in an "L" shape: two squares in one direction and one square
+ * perpendicular (or vice versa). This gives up to 8 possible destinations from any
+ * square, fewer near the edges.
+ *
+ * NOTE: [performance improvement] This function recomputes the attack set from scratch
+ * each time. For CPU engines, a precomputed 64-entry lookup table is standard. On the
+ * GPU, this table could live in __constant__ memory (64 * 8 = 512 bytes, well within
+ * the 64KB limit) for a small speedup. We compute on the fly here for clarity.
+ */
+__host__ __device__ inline uint64_t knight_attacks(int square) {
+    uint64_t bb = 1ULL << square;
+
+    // NOTE: [pedagogical] Each shift below corresponds to one of the 8 "L" shaped jumps.
+    // The file masks prevent wraparound: a knight on the a-file cannot jump left, and one
+    // on the h-file cannot jump right. For 2-square horizontal jumps, we need to mask out
+    // both edge files (A+B or G+H) since the knight could start on either.
+    //
+    //   Direction       Shift    Mask (prevent wrapping)
+    //   up 2, right 1   << 17   not FILE_A (destination would be on a-file if wrapped)
+    //   up 2, left 1    << 15   not FILE_H
+    //   up 1, right 2   << 10   not FILE_A or B
+    //   up 1, left 2    <<  6   not FILE_G or H
+    //   down 1, right 2 >>  6   not FILE_A or B
+    //   down 1, left 2  >> 10   not FILE_G or H
+    //   down 2, right 1 >> 15   not FILE_A
+    //   down 2, left 1  >> 17   not FILE_H
+
+    uint64_t attacks = 0;
+    attacks |= (bb << 17) & ~FILE_A;
+    attacks |= (bb << 15) & ~FILE_H;
+    attacks |= (bb << 10) & ~(FILE_A | FILE_B);
+    attacks |= (bb <<  6) & ~(FILE_G | FILE_H);
+    attacks |= (bb >> 17) & ~FILE_H;
+    attacks |= (bb >> 15) & ~FILE_A;
+    attacks |= (bb >> 10) & ~(FILE_G | FILE_H);
+    attacks |= (bb >>  6) & ~(FILE_A | FILE_B);
+    return attacks;
+}
+
+/**
+ * Generate all pseudo-legal knight moves for the side to move.
+ */
+__host__ __device__ void generate_knight_moves(const BoardState& board, MoveList& list) {
+    Color us = board.side_to_move;
+    uint64_t our_knights = board.pieces[us][KNIGHT];
+    uint64_t enemy = board.occupied[(us == WHITE) ? BLACK : WHITE];
+    uint64_t friendly = board.occupied[us];
+
+    while (our_knights) {
+        int from = pop_lsb(our_knights);
+        // NOTE: [pedagogical] Masking out friendly pieces prevents generating moves that
+        // land on our own pieces. What remains is either empty squares (quiet moves) or
+        // enemy-occupied squares (captures).
+        uint64_t targets = knight_attacks(from) & ~friendly;
+
+        while (targets) {
+            int to = pop_lsb(targets);
+            MoveFlag flag = (enemy & (1ULL << to)) ? CAPTURE : QUIET;
+            add_move(list, from, to, flag);
         }
     }
 }
