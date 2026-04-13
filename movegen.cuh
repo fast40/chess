@@ -591,3 +591,79 @@ __host__ __device__ void generate_castling_moves(const BoardState& board, MoveLi
         }
     }
 }
+
+// === Combined Pseudo-Legal Move Generation ===
+
+/**
+ * Generate all pseudo-legal moves for the side to move.
+ *
+ * Calls every piece-specific generator and collects the results into a single MoveList.
+ * These moves may leave the king in check — use generate_legal_moves for filtered results.
+ */
+__host__ __device__ void generate_all_pseudo_legal_moves(const BoardState& board,
+                                                         MoveList& list) {
+    list.count = 0;
+    generate_pawn_moves(board, list);
+    generate_knight_moves(board, list);
+    generate_bishop_moves(board, list);
+    generate_rook_moves(board, list);
+    generate_queen_moves(board, list);
+    generate_king_moves(board, list);
+    generate_castling_moves(board, list);
+}
+
+// === Square Attack Detection ===
+
+/**
+ * Check whether a given square is attacked by any piece of the specified color.
+ *
+ * This is used for king-in-check detection and castling legality. The approach works
+ * by asking: "if a piece of type X were on the target square, could it capture an
+ * enemy piece of the same type?" This reversal trick avoids generating all enemy moves.
+ */
+__host__ __device__ inline bool is_square_attacked(const BoardState& board, int square,
+                                                   Color attacker) {
+    uint64_t attackers;
+
+    // NOTE: [pedagogical] Pawn attacks are asymmetric — they depend on color. A white pawn
+    // on square S attacks S+7 (NW) and S+9 (NE). So to check if a square is attacked by
+    // a white pawn, we look at S-7 and S-9 (the squares a white pawn would be on to attack
+    // here). For black pawns, it's reversed: they attack S-7 (SE) and S-9 (SW), so we
+    // check S+7 and S+9.
+    uint64_t enemy_pawns = board.pieces[attacker][PAWN];
+    if (attacker == WHITE) {
+        // White pawns attack NE (+9) and NW (+7), so check SE and SW from target
+        uint64_t pawn_attackers = 0;
+        pawn_attackers |= ((1ULL << square) >> 9) & ~FILE_H; // SW: pawn on square-9
+        pawn_attackers |= ((1ULL << square) >> 7) & ~FILE_A; // SE: pawn on square-7
+        if (pawn_attackers & enemy_pawns) return true;
+    } else {
+        // Black pawns attack SE (-7) and SW (-9), so check NE and NW from target
+        uint64_t pawn_attackers = 0;
+        pawn_attackers |= ((1ULL << square) << 9) & ~FILE_A; // NE: pawn on square+9
+        pawn_attackers |= ((1ULL << square) << 7) & ~FILE_H; // NW: pawn on square+7
+        if (pawn_attackers & enemy_pawns) return true;
+    }
+
+    // NOTE: [pedagogical] For symmetric pieces (knight, king, sliders), the reversal is
+    // simple: if a knight on the target square could reach an enemy knight, then that
+    // enemy knight attacks the target square. Knight and king attacks are symmetric.
+    attackers = knight_attacks(square) & board.pieces[attacker][KNIGHT];
+    if (attackers) return true;
+
+    attackers = king_attacks(square) & board.pieces[attacker][KING];
+    if (attackers) return true;
+
+    // NOTE: [pedagogical] For sliding pieces, we compute what a bishop/rook on the target
+    // square could see, then check if any enemy bishop/queen or rook/queen is there.
+    // Queens appear in both checks because they move both diagonally and orthogonally.
+    uint64_t diagonal = sliding_attacks(square, board.all_occupied, 4, 8);
+    attackers = diagonal & (board.pieces[attacker][BISHOP] | board.pieces[attacker][QUEEN]);
+    if (attackers) return true;
+
+    uint64_t orthogonal = sliding_attacks(square, board.all_occupied, 0, 4);
+    attackers = orthogonal & (board.pieces[attacker][ROOK] | board.pieces[attacker][QUEEN]);
+    if (attackers) return true;
+
+    return false;
+}
