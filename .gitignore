@@ -7,3 +7,4 @@ test_rook_movegen
 test_queen_movegen
 test_castling_movegen
 test_random_game
+chess_sim
