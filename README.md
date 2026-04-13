@@ -29,6 +29,21 @@ a full legal move generator and game driver in CUDA exercises a wide range of GP
 programming concepts: thread divergence, shared memory, random number generation,
 parallel reduction for aggregating statistics, and more.
 
+## Board Representation
+
+We use **12 bitboards** (one `uint64_t` per piece-type-color combination), which is
+the standard representation in CPU chess engines like Stockfish. No known GPU chess engine
+has used this representation before — the Zeta GPU engine uses quad bitboards (4 values
+encoding piece info vertically). We chose 12-bitboard for clarity: "where are white's
+knights?" is a single array read.
+
+Each game state is ~128 bytes: 96 bytes for 12 piece bitboards, 24 bytes for occupancy
+bitboards, and 8 bytes for metadata (side to move, castling rights, en passant, clocks).
+
 ## Progress
 
 - [x] Project setup and README
+- [x] Board state struct with 12-bitboard representation
+- [x] Board initialization (standard starting position)
+- [x] ASCII board printing for debugging
+- [x] Tests for piece counts, occupancy consistency, and game state
