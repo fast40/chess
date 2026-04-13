@@ -326,3 +326,60 @@ __host__ __device__ void generate_knight_moves(const BoardState& board, MoveList
         }
     }
 }
+
+// === King Moves (Non-Castling) ===
+
+/**
+ * Compute the bitboard of all squares a king can reach from the given square.
+ *
+ * The king moves one square in any direction (horizontal, vertical, or diagonal),
+ * giving up to 8 destinations. Like the knight, only file masks are needed to prevent
+ * wrapping — the king can never go off the top or bottom of the board since shifts
+ * past bit 63 or below bit 0 produce zero.
+ */
+__host__ __device__ inline uint64_t king_attacks(int square) {
+    uint64_t bb = 1ULL << square;
+
+    // NOTE: [pedagogical] The 8 king directions map to these bit shifts:
+    //   North: +8    South: -8       (no file mask needed, vertical only)
+    //   East:  +1    West:  -1       (mask FILE_A/FILE_H to prevent wrap)
+    //   NE:    +9    SW:    -9       (mask FILE_A/FILE_H)
+    //   NW:    +7    SE:    -7       (mask FILE_H/FILE_A)
+    uint64_t attacks = 0;
+    attacks |= (bb << 8);                // north
+    attacks |= (bb >> 8);                // south
+    attacks |= (bb << 1) & ~FILE_A;     // east
+    attacks |= (bb >> 1) & ~FILE_H;     // west
+    attacks |= (bb << 9) & ~FILE_A;     // north-east
+    attacks |= (bb << 7) & ~FILE_H;     // north-west
+    attacks |= (bb >> 7) & ~FILE_A;     // south-east
+    attacks |= (bb >> 9) & ~FILE_H;     // south-west
+    return attacks;
+}
+
+/**
+ * Generate all pseudo-legal king moves for the side to move (excluding castling).
+ *
+ * NOTE: [thought process] Castling is handled separately because it has complex
+ * prerequisites (rights, clear squares, no attacks on the path) that don't fit the
+ * simple attack-table pattern used here.
+ */
+__host__ __device__ void generate_king_moves(const BoardState& board, MoveList& list) {
+    Color us = board.side_to_move;
+    uint64_t our_king = board.pieces[us][KING];
+    uint64_t enemy = board.occupied[(us == WHITE) ? BLACK : WHITE];
+    uint64_t friendly = board.occupied[us];
+
+    // NOTE: [thought process] There is always exactly one king per side, so this loop
+    // runs exactly once. We use pop_lsb for consistency with the other piece generators.
+    while (our_king) {
+        int from = pop_lsb(our_king);
+        uint64_t targets = king_attacks(from) & ~friendly;
+
+        while (targets) {
+            int to = pop_lsb(targets);
+            MoveFlag flag = (enemy & (1ULL << to)) ? CAPTURE : QUIET;
+            add_move(list, from, to, flag);
+        }
+    }
+}
