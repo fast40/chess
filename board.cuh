@@ -164,6 +164,17 @@ __host__ __device__ inline int pop_lsb(uint64_t& bitboard) {
     return square;
 }
 
+/**
+ * Find the index of the least significant set bit without clearing it.
+ */
+__host__ __device__ inline int lsb(uint64_t bitboard) {
+#ifdef __CUDA_ARCH__
+    return __ffsll(bitboard) - 1;
+#else
+    return __builtin_ctzll(bitboard);
+#endif
+}
+
 // === Castling Right Constants ===
 constexpr uint8_t WHITE_KINGSIDE  = 1 << 0;
 constexpr uint8_t WHITE_QUEENSIDE = 1 << 1;

@@ -192,10 +192,7 @@ __host__ __device__ void generate_legal_moves(const BoardState& board, MoveList&
         // NOTE: [pedagogical] After making the move, side_to_move has switched to the
         // opponent. So we need to find OUR king (the side that just moved) and check if
         // the OPPONENT (now the side to move) attacks it.
-        int king_square = __builtin_ctzll(after.pieces[us][KING]);
-        #ifdef __CUDA_ARCH__
-            king_square = __ffsll(after.pieces[us][KING]) - 1;
-        #endif
+        int king_square = lsb(after.pieces[us][KING]);
 
         if (!is_square_attacked(after, king_square, them)) {
             legal.moves[legal.count] = move;
@@ -235,12 +232,7 @@ __host__ __device__ GameResult check_game_over(const BoardState& board,
     Color them = (us == WHITE) ? BLACK : WHITE;
 
     // Find king square
-    int king_square;
-    #ifdef __CUDA_ARCH__
-        king_square = __ffsll(board.pieces[us][KING]) - 1;
-    #else
-        king_square = __builtin_ctzll(board.pieces[us][KING]);
-    #endif
+    int king_square = lsb(board.pieces[us][KING]);
 
     if (is_square_attacked(board, king_square, them)) {
         // In check with no legal moves = checkmate
