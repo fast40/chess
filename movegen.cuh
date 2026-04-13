@@ -383,3 +383,74 @@ __host__ __device__ void generate_king_moves(const BoardState& board, MoveList& 
         }
     }
 }
+
+// === Sliding Piece Attacks ===
+
+// NOTE: [pedagogical] Sliding pieces (bishops, rooks, queens) move along rays — straight
+// lines that extend until hitting a piece or the board edge. Unlike knights and kings
+// whose attack sets are fixed per square, sliding piece attacks depend on what's in the
+// way. A rook on a1 with nothing blocking it attacks the entire a-file and 1st rank, but
+// a pawn on a4 would block everything beyond it on the a-file.
+//
+// We compute ray attacks by walking one square at a time in a direction until we hit a
+// piece or fall off the board. This is the simplest approach and is easy to follow.
+//
+// NOTE: [performance improvement] On the GPU, this loop-per-ray approach causes thread
+// divergence because different games may have different blocker positions, leading to
+// different loop lengths within a warp. The Kogge-Stone fill algorithm computes ray
+// attacks using only shifts and ORs (no loops), which eliminates this divergence. It's
+// a natural optimization target once correctness is established.
+
+// NOTE: [pedagogical] Each direction is encoded as a (file_delta, rank_delta) pair. To
+// walk along a ray, we repeatedly add file_delta to the file and rank_delta to the rank.
+// The direction indices 0-3 are for rook (orthogonal) and 4-7 are for bishop (diagonal).
+constexpr int RAY_FILE_DELTA[8] = { 0, 0, -1, +1,  -1, +1, -1, +1};
+constexpr int RAY_RANK_DELTA[8] = {+1, -1,  0,  0,  +1, +1, -1, -1};
+
+// Direction names:
+//   0: North      1: South      2: West       3: East
+//   4: NorthWest  5: NorthEast  6: SouthWest  7: SouthEast
+
+/**
+ * Compute the attack bitboard for a sliding piece along a single ray direction.
+ *
+ * Walks from the given square in the specified direction, marking each empty square
+ * as attacked. Stops when hitting a piece (which is also marked as attacked, since
+ * the slider can capture it) or the board edge.
+ */
+__host__ __device__ inline uint64_t ray_attacks(int square, int direction,
+                                                uint64_t all_occupied) {
+    uint64_t attacks = 0;
+    int file = square % 8;
+    int rank = square / 8;
+    int df = RAY_FILE_DELTA[direction];
+    int dr = RAY_RANK_DELTA[direction];
+
+    while (true) {
+        file += df;
+        rank += dr;
+        if (file < 0 || file > 7 || rank < 0 || rank > 7) break;
+
+        int target = rank * 8 + file;
+        attacks |= (1ULL << target);
+
+        // Stop after the first occupied square (the slider can capture it but not
+        // pass through it)
+        if (all_occupied & (1ULL << target)) break;
+    }
+    return attacks;
+}
+
+/**
+ * Compute the combined attack bitboard for a sliding piece across multiple ray directions.
+ *
+ * Bishops use directions 4-7 (diagonals), rooks use 0-3 (orthogonals), queens use all 8.
+ */
+__host__ __device__ inline uint64_t sliding_attacks(int square, uint64_t all_occupied,
+                                                    int start_dir, int end_dir) {
+    uint64_t attacks = 0;
+    for (int dir = start_dir; dir < end_dir; dir++) {
+        attacks |= ray_attacks(square, dir, all_occupied);
+    }
+    return attacks;
+}
