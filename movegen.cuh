@@ -454,3 +454,29 @@ __host__ __device__ inline uint64_t sliding_attacks(int square, uint64_t all_occ
     }
     return attacks;
 }
+
+// === Bishop Moves ===
+
+/**
+ * Generate all pseudo-legal bishop moves for the side to move.
+ *
+ * Bishops slide along the 4 diagonal directions (NW, NE, SW, SE), which are ray
+ * directions 4-7 in our encoding.
+ */
+__host__ __device__ void generate_bishop_moves(const BoardState& board, MoveList& list) {
+    Color us = board.side_to_move;
+    uint64_t our_bishops = board.pieces[us][BISHOP];
+    uint64_t enemy = board.occupied[(us == WHITE) ? BLACK : WHITE];
+    uint64_t friendly = board.occupied[us];
+
+    while (our_bishops) {
+        int from = pop_lsb(our_bishops);
+        uint64_t targets = sliding_attacks(from, board.all_occupied, 4, 8) & ~friendly;
+
+        while (targets) {
+            int to = pop_lsb(targets);
+            MoveFlag flag = (enemy & (1ULL << to)) ? CAPTURE : QUIET;
+            add_move(list, from, to, flag);
+        }
+    }
+}
