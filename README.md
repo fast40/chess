@@ -40,6 +40,25 @@ knights?" is a single array read.
 Each game state is ~128 bytes: 96 bytes for 12 piece bitboards, 24 bytes for occupancy
 bitboards, and 8 bytes for metadata (side to move, castling rights, en passant, clocks).
 
+## Usage
+
+```bash
+nvcc -o chess_sim main.cu
+./chess_sim 100000    # play 100,000 games (default: 10,000)
+```
+
+## Sample Results (1,000,000 games on RTX 3090 Ti)
+
+```
+White wins:    7.6%
+Black wins:    7.7%
+Stalemate:     6.3%
+50-move draw: 78.4%
+
+Avg game length: 204 full moves
+Performance:     232,000 games/second
+```
+
 ## Progress
 
 - [x] Project setup and README
@@ -47,3 +66,11 @@ bitboards, and 8 bytes for metadata (side to move, castling rights, en passant, 
 - [x] Board initialization (standard starting position)
 - [x] ASCII board printing for debugging
 - [x] Tests for piece counts, occupancy consistency, and game state
+- [x] Pseudo-legal move generation for all pieces (pawns, knights, bishops, rooks, queens, king, castling)
+- [x] Square attack detection
+- [x] Make move (with all special moves: en passant, castling, promotion)
+- [x] Legal move generation (pseudo-legal + king safety filter)
+- [x] Game-over detection (checkmate, stalemate, 50-move rule)
+- [x] CPU validation (single random game end-to-end)
+- [x] CUDA kernel playing games in parallel with curand
+- [x] Statistics collection and performance timing
