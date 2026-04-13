@@ -4,3 +4,4 @@ test_knight_movegen
 test_king_movegen
 test_bishop_movegen
 test_rook_movegen
+test_queen_movegen
