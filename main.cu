@@ -1,6 +1,8 @@
 /**
  * @file main.cu
  * @brief GPU random chess simulator — plays thousands of games in parallel and reports statistics.
+ *        The first NUM_RECORDED_GAMES games have their full move history captured and
+ *        printed to stdout in PGN format after the simulation completes.
  *
  * This is the main entry point for the project. Each CUDA thread plays one complete
  * random chess game from the standard starting position, choosing moves uniformly at
@@ -15,18 +17,10 @@
 
 #include "board.cuh"
 #include "game.cuh"
+#include "recording.cuh"
 #include <cstdio>
+#include <ctime>
 #include <curand_kernel.h>
-
-// === Per-Game Statistics ===
-
-/**
- * Statistics collected from a single game, written by each GPU thread.
- */
-struct GameStats {
-    GameResult result;
-    uint16_t game_length; // total half-moves (plies)
-};
 
 // === CUDA Kernel ===
 
@@ -38,7 +32,11 @@ struct GameStats {
  * generator. The thread then runs an independent game loop: generate legal moves, pick
  * one at random, make the move, check for game over.
  */
-__global__ void play_random_games(GameStats* results, int num_games, unsigned long long seed) {
+__global__ void play_random_games(GameStats*    results,
+                                  RecordedGame* recorded,
+                                  int           num_games,
+                                  int           num_recorded,
+                                  unsigned long long seed) {
     int global_id = blockIdx.x * blockDim.x + threadIdx.x;
     if (global_id >= num_games) return;
 
@@ -55,7 +53,6 @@ __global__ void play_random_games(GameStats* results, int num_games, unsigned lo
     initialize_board(board);
 
     int move_count = 0;
-    constexpr int MAX_GAME_LENGTH = 1000;
 
     while (move_count < MAX_GAME_LENGTH) {
         MoveList legal;
@@ -64,6 +61,10 @@ __global__ void play_random_games(GameStats* results, int num_games, unsigned lo
         GameResult result = check_game_over(board, legal);
         if (result != ONGOING) {
             results[global_id] = {result, (uint16_t)move_count};
+            if (record_this_game) {
+                recorded[global_id].result      = result;
+                recorded[global_id].game_length = (uint16_t)move_count;
+            }
             return;
         }
 
@@ -72,13 +73,24 @@ __global__ void play_random_games(GameStats* results, int num_games, unsigned lo
         // Taking modulo legal.count gives us an index into the legal move list. This has
         // a tiny bias when legal.count doesn't divide 2^32 evenly, but the bias is
         // negligible for our purposes (< 0.00001% for typical move counts of 20-40).
-        int choice = curand(&rng) % legal.count;
-        make_move(board, legal.moves[choice]);
+        int  choice = curand(&rng) % legal.count;
+        Move chosen = legal.moves[choice];
+
+        // Record the move before applying it
+        if (record_this_game) {
+            recorded[global_id].move_history[move_count] = chosen;
+        }
+
+        make_move(board, chosen);
         move_count++;
     }
 
     // Hit max game length without a result — treat as a draw
     results[global_id] = {DRAW_50_MOVE, (uint16_t)move_count};
+    if (record_this_game) {
+        recorded[global_id].result      = DRAW_50_MOVE;
+        recorded[global_id].game_length = (uint16_t)move_count;
+    }
 }
 
 // === Statistics Reporting ===
@@ -135,12 +147,18 @@ int main(int argc, char** argv) {
         num_games = atoi(argv[1]);
     }
 
-    printf("Random Chess GPU Simulator\n");
-    printf("Playing %d games on the GPU...\n", num_games);
+    // Don't try to record more games than we're playing
+    int num_recorded = (NUM_RECORDED_GAMES < num_games) ? NUM_RECORDED_GAMES : num_games;
 
-    // === Device Memory Allocation ===
-    GameStats* d_results;
-    cudaMalloc(&d_results, num_games * sizeof(GameStats));
+    printf("Random Chess GPU Simulator\n");
+    printf("Playing %d games, recording first %d for PGN output...\n\n",
+           num_games, num_recorded);
+
+    // === Device Memory ===
+    GameStats*    d_results;
+    RecordedGame* d_recorded;
+    cudaMalloc(&d_results,  num_games    * sizeof(GameStats));
+    cudaMalloc(&d_recorded, num_recorded * sizeof(RecordedGame));
 
     // === Kernel Launch Configuration ===
     // NOTE: [pedagogical] We choose 256 threads per block, which is a common choice that
@@ -160,7 +178,8 @@ int main(int argc, char** argv) {
     unsigned long long seed = time(nullptr);
 
     cudaEventRecord(start);
-    play_random_games<<<num_blocks, threads_per_block>>>(d_results, num_games, seed);
+    play_random_games<<<num_blocks, threads_per_block>>>(
+        d_results, d_recorded, num_games, num_recorded, seed);
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
 
@@ -168,6 +187,8 @@ int main(int argc, char** argv) {
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         fprintf(stderr, "Kernel launch failed: %s\n", cudaGetErrorString(err));
+        cudaFree(d_results);
+        cudaFree(d_recorded);
         return 1;
     }
 
@@ -175,14 +196,26 @@ int main(int argc, char** argv) {
     cudaEventElapsedTime(&elapsed_ms, start, stop);
 
     // === Copy Results to Host ===
-    GameStats* h_results = new GameStats[num_games];
-    cudaMemcpy(h_results, d_results, num_games * sizeof(GameStats), cudaMemcpyDeviceToHost);
+    GameStats*    h_results  = new GameStats[num_games];
+    RecordedGame* h_recorded = new RecordedGame[num_recorded];
 
+    cudaMemcpy(h_results,  d_results,  num_games    * sizeof(GameStats),    cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_recorded, d_recorded, num_recorded * sizeof(RecordedGame), cudaMemcpyDeviceToHost);
+
+    // === Statistics ===
     report_statistics(h_results, num_games, elapsed_ms);
+
+    // === PGN Output ===
+    printf("=== Recorded Games (PGN) ===\n\n");
+    for (int i = 0; i < num_recorded; i++) {
+        print_pgn(i + 1, h_recorded[i]);
+    }
 
     // === Cleanup ===
     delete[] h_results;
+    delete[] h_recorded;
     cudaFree(d_results);
+    cudaFree(d_recorded);
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
 
